@@ -74,17 +74,11 @@ class GeoLocation extends DataObject {
 	}
 
 	/**
-	 * updatePostcodeFromStatic
-	 *
-	 * Updates a set of GeoLocation Relationships based on a static field
-	 * containing space separated postcodes.
-	 *
 	 * @param DataObject $object The object containing the Relationship
 	 * @param string $postcodes The List of postcodes
 	 */
 	static public function updatePostcodeRelationship( DataObject $object, $postcodes ) {
 		//* debug */ $_REQUEST['showqueries'] = true;
-		$valid = new ValidationResult();
 		$geoLocations = $object->GeoLocations(); /* @var $geoLocations DataObjectSet */
 		$geoLocations->removeAll();
 
@@ -94,14 +88,9 @@ class GeoLocation extends DataObject {
 				if ($geoLocation = self::getFirstByPostcode($postcode)) {
 					$geoLocations->add($geoLocation);
 				}
-				else {
-					$valid->error($postcode);
-				}
 			}
 		}
 		$geoLocations->write();
-		//if (!$valid->valid())
-		//	throw new ValidationException($valid, 'Invalid postcodes encountered');
 	}
 
 	/**
@@ -132,23 +121,20 @@ class GeoLocation extends DataObject {
 	/**
 	 * @param int $latitude
 	 * @param int $longitude
+	 * @param int $table
 	 * @return string
 	 */
-	public function getDistanceFormula( $table = null ) {
-		return self::get_distance_formula($this->Latitude, $this->Longitude, $table);
+	public function getDistanceFormula( 
+			$latitudeField = 'GeoLocation.Latitude', $longitudeField = 'GeoLocation.Longitude' ) {
+		return self::getDistanceFormulaForCoords($this->Latitude, $this->Longitude, $latitudeField, $longitudeField);
 	}
 
-	public static function get_distance_formula( $latitude, $longitude, $table = null ) {
-		$prefix = ($table ? $table.'.' : '');
-		return "6371 * ACOS(COS(RADIANS('$latitude')) * COS(RADIANS({$prefix}Latitude)) "
-				."* COS(RADIANS({$prefix}Longitude) - RADIANS('$longitude')) + "
-				."SIN(RADIANS($latitude)) * SIN(RADIANS({$prefix}Latitude)))";
-	}
-
-	public function getCMSFields() {
-		$fields = parent::getCMSFields();
-		// $fields->removeByName('Regions');
-		return $fields;
+	public static function getDistanceFormulaForCoords( $latitude, $longitude,
+			$latitudeField, $longitudeField ) {
+		$factor = 6371; // for kilometres
+		return "$factor * ACOS(COS(RADIANS('$latitude')) * COS(RADIANS($latitudeField)) "
+				."* COS(RADIANS($longitudeField) - RADIANS('$longitude')) + "
+				."SIN(RADIANS($latitude)) * SIN(RADIANS($latitudeField)))";
 	}
 
 }

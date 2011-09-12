@@ -27,7 +27,6 @@ class Region extends DataObject {
 	}
 
 	protected function onBeforeWrite() {
-		// Explode the Postcodes and add them to the relationship
 		GeoLocation::updatePostcodeRelationship($this, $this->Postcodes);
 		return parent::onBeforeWrite();
 	}
@@ -49,7 +48,7 @@ class Region extends DataObject {
 	 * @param integer $distanceLimit
 	 * @return DataObjectSet
 	 */
-	public static function get_by_distance( GeoLocation $geoLocation, $distanceLimit ) {
+	public static function getByDistance( GeoLocation $geoLocation, $distanceLimit ) {
 		$sql = new SQLQuery();
 		$regionsSql = $geoLocation->getDistanceSQLQuery($distanceLimit)->select('ID');
 		$sql->select('Region.*') // can we add $formula.' as Distance'?
@@ -60,7 +59,7 @@ class Region extends DataObject {
 		return singleton('Region')->buildDataObjectSet($sql->execute());
 	}
 
-	public static function get_state_for_postcode( $countryCode, $postcode ) {
+	public static function getStateForPostcode( $countryCode, $postcode ) {
 		switch( $countryCode ) {
 			case 'au':
 				$first = substr($postcode, 0, 1);
@@ -92,9 +91,6 @@ class Region extends DataObject {
 
 	/**
 	 * Returns a list of states as key/value pairs.
-	 * 
-	 * @return ComponentSet
-	 * @author Alex Hayes <alex.hayes@dimension27.com>
 	 */
 	public static function getStates() {
 		return array(
@@ -111,15 +107,14 @@ class Region extends DataObject {
 
 	/**
 	 * Gets regions grouped by state.
-	 * 
 	 * @see GroupedDropdownField
 	 * @return array
 	 */
 	static public function getGroupedByState() {
 		$grouped = array();
 		foreach( self::getStates() as $abbr => $label ) {
-			if( $regions = DataObject::get('AgRegion', "`State` = '$abbr'") ) {
-				$grouped[$label] = $regions->map();				
+			if( $regions = DataObject::get('Region', "State = '$abbr'") ) {
+				$grouped[$label] = $regions->map();
 			}
 		}
 		return $grouped;

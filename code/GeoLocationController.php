@@ -1,100 +1,74 @@
 <?php
-
+/**
+ * Provides actions for querying a database of geographical coordinates.
+ * @author simonwade
+ */
 class GeoLocationController extends Controller {
 
 	static $url_handlers = array(
-		'load-postcodes' => 'loadPostcodes',
-		'load-regions' => 'loadRegions',
-		'$Postcode!/$Object!/$Radius' => 'objects_by_distance',
 		'search' => 'search',
+		'nearest/$Postcode' => 'nearest',
 	);
 
-	public function loadPostcodes( SS_HTTPRequest $request ) {
-		$args = $request->getVar('args');
-		if( !$file = array_shift($args) ) {
-			return 'Please pass a file argument';
+	/**
+	 * Provides the configuration for queries.
+	 * @var GeoLocator
+	 */
+	protected $geoLocator;
+
+	/**
+	 * Defines the way that results should be formatted. Supported formats are: xml
+	 * @var string
+	 */
+	protected $outputFormat = 'xml';
+
+	public function nearest( SS_HTTPRequest $request ) {
+		$locator = $this->getGeoLocator();
+		if( $locations = GeoLocation::getByKeyword(Convert::raw2sql($request->param('Postcode'))) ) {
+			$this->GeoLocation = $locations->pop();
+			$results = $locator->getResultsByDistance($this->GeoLocation, $request->requestVar('Radius'));
 		}
-		if( in_array('one-location-per-postcode', $args) ) {
-			$oneLocationPerPostcode = true;
+		if( !$results ) {
+			$results = new DataObjectSet();
 		}
-		$fh = fopen($file, 'r');
-		$header = fgetcsv($fh);
-		while($line = fgetcsv($fh)) {
-			list($postcode, $state, $name, $type, $latitude, $longitude) = $line;
-			$name = ucwords(strtolower($name));
-			if( !$gl = DataObject::get_one('GeoLocation',
-					"`Postcode` = '$postcode'"
-					.($oneLocationPerPostcode ? '' : " AND `Name` = '".Convert::raw2sql($name)."'")) ) {
-				$gl = new GeoLocation();
-				$gl->Postcode = $postcode;
-				$gl->Name = $name;
-			}
-			$gl->State = $state;
-			$gl->Type = $type;
-			$gl->Latitude = $latitude;
-			$gl->Longitude = $longitude;
-			$gl->write();
+		if( !$this->response ) {
+			$this->response = new SS_HTTPResponse();
 		}
+		$response = $this->getResultsMarkup($results);
+		$this->response->setBody($response);
+		return $this->response;
 	}
 
-	public function loadRegions() {
-		if( !@$_GET['file'] ) {
-			return 'Please pass a file argument';
-		}
-		$regions = array();
-		$file = $_GET['file'];
-		$fh = fopen($file, 'r');
-		$header = fgetcsv($fh);
-		while( $line = fgetcsv($fh) ) {
-			$name = trim($line[0]);
-			if( strlen($line[1]) == 3 ) {
-				$line[1] = str_pad($line[1], 4, 0, STR_PAD_LEFT);
-			}
-			if( !$region = @$regions[$name] ) {
-				if( !$region = DataObject::get_one('Region', "`Name` = '".Convert::raw2sql($name)."'") ) {
-					$region = new Region();
-					$region->Name = $name;
-					echo "Creating region '$region->Name'\n";
-					try {
-						$region->State = Region::get_state_for_postcode('au', $line[1]);
-					}
-					catch( Exception $e ) {
-						echo "\t".$e->getMessage().NL;
-					}
-					$region->write();
+	public function getResultsMarkup( $results ) {
+		$locator = $this->getGeoLocator();
+		switch( $this->outputFormat ) {
+		case 'xml':
+			$this->response->addHeader('Content-type', 'text/xml');
+			$response = "<?xml version=\"1.0\"?>\n<markers>\n";
+			foreach( $results as $result ) { /* @var $result DataObject */
+				$response .= "\t<marker";
+				foreach( $locator->getMarkerAttributes($result) as $name => $value ) {
+					$response .= " $name=\"".Convert::raw2xml($value)."\"";
 				}
-				$regions[$name] = $region;
+				$response .= "/>\n";
 			}
-			$region->Postcodes .= $line[1].' ';
-		}
-		foreach( $regions as $name => $region ) {
-			echo "Updating GeoLocations for region '$region->Name'\n";
-			try {
-				$region->write();
-			}
-			catch( ValidationException $e ) {
-				echo "\t".$e->getMessage().': '.implode(', ', $e->getResult()->messageList())."\n";
-			}
+			$response .= '</markers>';
+			return $response;
+			break;
+		default:
+			throw new Exception("Unsupported output format '$this->outputFormat'");
 		}
 	}
 
-	public function objects_by_distance($request) {
-		// @todo modify output into JSON for AJAX reuqests
-		$geoLocation = DataObject::get_one('GeoLocation', "`Postcode` = '".Convert::raw2sql($request->param("Postcode"))."'");
-		if (!$geoLocation) {
-			// Return an empty Set.
-			return print_r(array(), true);
+	public function getGeoLocator() {
+		if( !$this->geoLocator ) {
+			$this->geoLocator = new GeoLocator();
 		}
-		if (!$radius = $request->param('Radius')) {
-			$radius = 50;
-		}
-		$objects = $geoLocation->getObjectsByDistance($request->param('Object'), $radius);
-		$object_array = array();
-		foreach($objects as $object) {
-			$object_array[$object->ID] = $object->getTitle();
-		}
+		return $this->geoLocator;
+	}
 
-		return print_r($object_array, true);
+	public function setGeoLocator( $locator ) {
+		$this->geoLocator = $locator;
 	}
 
 	/**
@@ -120,4 +94,62 @@ class GeoLocationController extends Controller {
 		return json_encode($response);
 	}
 	
+}
+
+class GeoLocator {
+
+	protected $defaultRadius = 20;
+	protected $dataObject = 'GeoLocation';
+	protected $latitudeField = 'GeoLocation.Latitude';
+	protected $longitudeField = 'GeoLocation.Longitude';
+
+	public function searchFor( DataObject $dataObject, $latitudeField = null, $longitudeField = null ) {
+		$this->dataObject = $dataObject;
+		if( $latitudeField ) {
+			$this->latitudeField = $latitudeField;
+		}
+		if( $longitudeField ) {
+			$this->longitudeField = $longitudeField;
+		}
+	}
+
+	public function getResultsByDistance( $geoLocation, $radius = null ) {
+		$formula = $geoLocation->getDistanceFormula($this->latitudeField, $this->longitudeField);
+		if( !$radius ) {
+			$radius = $this->defaultRadius;
+		}
+		$sql = new SQLQuery();
+		$sql->select("$this->dataObject.*, $formula AS Distance")
+			->from($this->dataObject)
+			->having('Distance < '.$radius)
+			->groupby("$this->dataObject.ID")
+			->orderby('Distance ASC');
+		return singleton($this->dataObject)->buildDataObjectSet($sql->execute());
+	}
+
+	public function getMarkerAttributes( $result ) {
+		return array(
+			'name' => $result->Title,
+			'lat' => $result->Latitude,
+			'lng' => $result->Longitude,
+		);
+	}
+
+}
+
+class GeolocatableLocator extends GeoLocator {
+
+	public function __construct( $dataObject ) {
+		$this->searchFor($dataObject, "$dataObject.Lat", "$dataObject.Lng");
+	}
+
+	public function getMarkerAttributes( $result ) {
+		return array(
+			'name' => $result->Title,
+			'address' => $result->getFullAddress(),
+			'lat' => $result->Lat,
+			'lng' => $result->Lng,
+		);
+	}
+
 }
