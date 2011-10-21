@@ -1,0 +1,9 @@
+UL.nearest-results {
+	width: 100px;
+	height: 200px;
+	float: right;
+	overflow-y: auto;
+}
+UL.nearest-results li {
+	margin-bottom: 5px;
+}

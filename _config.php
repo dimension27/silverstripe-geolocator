@@ -7,6 +7,6 @@ if( Director::is_cli() ) {
 /**
  * Default route:
 Director::addRules(50, array(
-	'geolocator' => 'GeoLocationController',
+	'geolocator' => 'GeoLocatorPage_Controller',
 ));
  */
