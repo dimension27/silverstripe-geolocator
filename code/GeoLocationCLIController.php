@@ -12,7 +12,13 @@ class GeoLocationCLIController {
 			return 'Please pass a file argument';
 		}
 		$oneLocationPerPostcode = in_array('one-location-per-postcode', $args);
-		
+		$this->loadPostcodesFromFile($file, $oneLocationPerPostcode);
+	}
+	
+	public function loadPostcodesFromFile($file , $oneLocationPerPostcode = null) {
+		if (!is_null($oneLocationPerPostcode)) {
+			$oneLocationPerPostcode = false;
+		}
 		$fh = fopen($file, 'r');
 		$header = fgetcsv($fh);
 		while($line = fgetcsv($fh)) {
