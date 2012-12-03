@@ -14,6 +14,11 @@ class GeoLocatorPage_Controller extends Page_Controller {
 	 */
 	protected $geoLocator;
 
+	public function __construct( GeoLocator $locator = null ) {
+		$locator && $this->setGeoLocator($locator);
+		parent::__construct();
+	}
+
 	public function Nearest() {
 		$locator = $this->getGeoLocator();
 		if( $matches = GeoLocation::getByPostcode(Convert::raw2sql($this->request->requestVar('near'))) ) {
